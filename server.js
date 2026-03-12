@@ -1,8 +1,8 @@
 const http = require('http');
 const https = require('https');
 
-const PORT = 3000;
-const NTFY_CHANNEL = process.argv[2] || 'ictflow_eurusd_vanep_2026';
+const PORT = process.env.PORT || 3000;
+const NTFY_CHANNEL = process.env.NTFY_CHANNEL || process.argv[2] || 'ictflow_eurusd_vanep_2026';
 
 let latestData = null;
 let clients = [];
