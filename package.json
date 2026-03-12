@@ -1,0 +1,9 @@
+{
+  "name": "ictflow",
+  "version": "1.0.0",
+  "description": "ICT + Volume Profile live trading dashboard via TradingView webhooks",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  }
+}

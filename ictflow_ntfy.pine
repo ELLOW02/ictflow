@@ -1,0 +1,185 @@
+//@version=5
+indicator("ICTFLOW · ICT + VP Signals", overlay=true, max_bars_back=500)
+
+// ─── INPUT: tu canal ntfy (cambia "ictflow_ion" por cualquier nombre único) ───
+i_channel = input.string("ictflow_ion123", "Canal ntfy (único)")
+i_tf      = input.string("15m", "Timeframe")
+
+// ─── ASIAN RANGE ──────────────────────────────────────────────────────────────
+t_start  = timestamp("UTC", year, month, dayofmonth, 0, 0)
+t_end    = timestamp("UTC", year, month, dayofmonth, 2, 0)
+in_asian = time >= t_start and time <= t_end
+
+var float ah   = na
+var float al   = na
+var float ah_d = na
+var float al_d = na
+
+if in_asian
+    ah := na(ah) ? high : math.max(ah, high)
+    al := na(al) ? low  : math.min(al, low)
+
+if dayofweek != dayofweek[1]
+    ah := na
+    al := na
+
+if not in_asian and not na(ah)
+    ah_d := ah
+    al_d := al
+
+ote = na(ah_d) ? na : al_d + (ah_d - al_d) * 0.618
+eq  = na(ah_d) ? na : (ah_d + al_d) / 2.0
+
+// ─── ORDER BLOCKS ─────────────────────────────────────────────────────────────
+bull_ob = close[1] < open[1] and close > high[1]
+bear_ob = close[1] > open[1] and close < low[1]
+
+var float ob_bt = na
+var float ob_bb = na
+var float ob_st = na
+var float ob_sb = na
+
+if bull_ob
+    ob_bt := high[1]
+    ob_bb := low[1]
+if bear_ob
+    ob_st := high[1]
+    ob_sb := low[1]
+
+// ─── FVG ──────────────────────────────────────────────────────────────────────
+fvg_bull = low > high[2]
+fvg_bear = high < low[2]
+
+var float fvg_bt = na
+var float fvg_bb = na
+var float fvg_st = na
+var float fvg_sb = na
+
+if fvg_bull
+    fvg_bt := low
+    fvg_bb := high[2]
+if fvg_bear
+    fvg_st := low[2]
+    fvg_sb := high
+
+// ─── STRUCTURE ────────────────────────────────────────────────────────────────
+sw_h     = ta.highest(high, 10)
+sw_l     = ta.lowest(low,  10)
+mss_bull = close > sw_h[1]
+mss_bear = close < sw_l[1]
+sweep_h  = high > sw_h[1] and close < sw_h[1]
+sweep_l  = low  < sw_l[1] and close > sw_l[1]
+
+// ─── KILLZONE ─────────────────────────────────────────────────────────────────
+h_utc  = hour(time, "UTC")
+london = h_utc >= 7  and h_utc < 10
+ny     = h_utc >= 13 and h_utc < 16
+in_kz  = london or ny
+kz_lbl = london ? "London" : ny ? "NewYork" : "OffKZ"
+
+// ─── VOLUME / SMT / VWAP ──────────────────────────────────────────────────────
+avg_vol   = ta.sma(volume, 20)
+vol_spike = volume > avg_vol * 1.3
+smt_bull  = (close - close[3]) > 0 and close[1] < close[2]
+smt_bear  = (close - close[3]) < 0 and close[1] > close[2]
+vwap_v    = ta.vwap(hlc3)
+vwap_s    = ta.stdev(close, 20)
+vah_v     = vwap_v + vwap_s
+val_v     = vwap_v - vwap_s
+
+// ─── SCORES ───────────────────────────────────────────────────────────────────
+near_ote = not na(ote) and math.abs(close - ote) < 0.00060
+
+bs = (sweep_l  ? 1 : 0) + (bull_ob  ? 1 : 0) + (fvg_bull ? 1 : 0) +
+     (mss_bull ? 1 : 0) + (in_kz    ? 1 : 0) + (vol_spike? 1 : 0) +
+     (smt_bull ? 1 : 0) + (near_ote ? 1 : 0)
+
+ss = (sweep_h  ? 1 : 0) + (bear_ob  ? 1 : 0) + (fvg_bear ? 1 : 0) +
+     (mss_bear ? 1 : 0) + (in_kz    ? 1 : 0) + (vol_spike? 1 : 0) +
+     (smt_bear ? 1 : 0) + (near_ote ? 1 : 0)
+
+sig   = bs >= 5 ? "LONG" : ss >= 5 ? "SHORT" : "WAIT"
+score = bs >= ss ? bs : ss
+
+// ─── ENTRY / SL / TP ─────────────────────────────────────────────────────────
+el   = na(ote)  ? close           : ote
+sl_l = na(al_d) ? close - 0.0015  : al_d - 0.0001
+tp_l = na(ah_d) ? close + 0.003   : ah_d + (ah_d - al_d) * 0.5
+es   = na(ah_d) ? close           : ah_d - (ah_d - al_d) * 0.382
+sl_s = na(ah_d) ? close + 0.0015  : ah_d + 0.0001
+tp_s = na(al_d) ? close - 0.003   : al_d - (ah_d - al_d) * 0.5
+
+en   = sig == "LONG" ? el   : es
+sl   = sig == "LONG" ? sl_l : sl_s
+tp   = sig == "LONG" ? tp_l : tp_s
+risk   = math.abs(en - sl)
+rr_val = risk > 0 ? math.round(math.abs(tp - en) / risk * 10) / 10 : 0.0
+
+// ─── PLOTS ────────────────────────────────────────────────────────────────────
+plot(ah_d,   "Asian H",  color.new(color.yellow, 50), 1)
+plot(al_d,   "Asian L",  color.new(color.yellow, 50), 1)
+plot(ote,    "OTE",      color.new(color.blue,   40), 1)
+plot(vwap_v, "VWAP",     color.new(color.white,  60), 1)
+plot(vah_v,  "VAH",      color.new(color.orange, 60), 1)
+plot(val_v,  "VAL",      color.new(color.aqua,   60), 1)
+
+plotshape(bull_ob, "BullOB", shape.triangleup,   location.belowbar, color.new(color.green, 20), size=size.tiny)
+plotshape(bear_ob, "BearOB", shape.triangledown, location.abovebar, color.new(color.red,   20), size=size.tiny)
+plotshape(fvg_bull,"FVG+",   shape.circle,       location.belowbar, color.new(color.blue,  30), size=size.tiny)
+plotshape(fvg_bear,"FVG-",   shape.circle,       location.abovebar, color.new(color.blue,  30), size=size.tiny)
+plotshape(sweep_l, "SWPL",   shape.labelup,      location.belowbar, color.new(color.yellow,10), text="SWP", textcolor=color.yellow, size=size.tiny)
+plotshape(sweep_h, "SWPH",   shape.labeldown,    location.abovebar, color.new(color.yellow,10), text="SWP", textcolor=color.yellow, size=size.tiny)
+plotshape(sig == "LONG"  and barstate.isconfirmed, "LONG",  shape.arrowup,   location.belowbar, color.green, size=size.small)
+plotshape(sig == "SHORT" and barstate.isconfirmed, "SHORT", shape.arrowdown, location.abovebar, color.red,   size=size.small)
+bgcolor(in_kz ? color.new(color.blue, 93) : na)
+
+// ─── ALERTA (mensaje que va en el campo "Mensaje" de la alerta) ───────────────
+if barstate.isconfirmed
+    var string p = ""
+    p := '{"type":"tick"'
+    p := p + ',"symbol":"' + syminfo.ticker + '"'
+    p := p + ',"tf":"'     + i_tf + '"'
+    p := p + ',"time":'    + str.tostring(time)
+    p := p + ',"open":'    + str.tostring(open,  "#.#####")
+    p := p + ',"high":'    + str.tostring(high,  "#.#####")
+    p := p + ',"low":'     + str.tostring(low,   "#.#####")
+    p := p + ',"close":'   + str.tostring(close, "#.#####")
+    p := p + ',"volume":'  + str.tostring(volume)
+    p := p + ',"vwap":'    + str.tostring(vwap_v, "#.#####")
+    p := p + ',"vah":'     + str.tostring(vah_v,  "#.#####")
+    p := p + ',"val":'     + str.tostring(val_v,  "#.#####")
+    p := p + ',"asian_h":' + str.tostring(ah_d,  "#.#####")
+    p := p + ',"asian_l":' + str.tostring(al_d,  "#.#####")
+    p := p + ',"ote":'     + str.tostring(ote,   "#.#####")
+    p := p + ',"eq":'      + str.tostring(eq,    "#.#####")
+    p := p + ',"ob_bull_top":' + str.tostring(ob_bt, "#.#####")
+    p := p + ',"ob_bull_bot":' + str.tostring(ob_bb, "#.#####")
+    p := p + ',"ob_bear_top":' + str.tostring(ob_st, "#.#####")
+    p := p + ',"ob_bear_bot":' + str.tostring(ob_sb, "#.#####")
+    p := p + ',"fvg_bull_top":' + str.tostring(fvg_bt, "#.#####")
+    p := p + ',"fvg_bull_bot":' + str.tostring(fvg_bb, "#.#####")
+    p := p + ',"fvg_bear_top":' + str.tostring(fvg_st, "#.#####")
+    p := p + ',"fvg_bear_bot":' + str.tostring(fvg_sb, "#.#####")
+    p := p + ',"signal":"'  + sig + '"'
+    p := p + ',"score":'    + str.tostring(score)
+    p := p + ',"bull_score":' + str.tostring(bs)
+    p := p + ',"bear_score":' + str.tostring(ss)
+    p := p + ',"entry":'    + str.tostring(en,  "#.#####")
+    p := p + ',"sl":'       + str.tostring(sl,  "#.#####")
+    p := p + ',"tp1":'      + str.tostring(tp,  "#.#####")
+    p := p + ',"rr":'       + str.tostring(rr_val)
+    p := p + ',"mss_bull":' + str.tostring(mss_bull)
+    p := p + ',"mss_bear":' + str.tostring(mss_bear)
+    p := p + ',"sweep_h":'  + str.tostring(sweep_h)
+    p := p + ',"sweep_l":'  + str.tostring(sweep_l)
+    p := p + ',"bull_ob":'  + str.tostring(bull_ob)
+    p := p + ',"bear_ob":'  + str.tostring(bear_ob)
+    p := p + ',"fvg_bull":' + str.tostring(fvg_bull)
+    p := p + ',"fvg_bear":' + str.tostring(fvg_bear)
+    p := p + ',"killzone":' + str.tostring(in_kz)
+    p := p + ',"kz_label":"' + kz_lbl + '"'
+    p := p + ',"smt_bull":' + str.tostring(smt_bull)
+    p := p + ',"smt_bear":' + str.tostring(smt_bear)
+    p := p + ',"vol_spike":' + str.tostring(vol_spike)
+    p := p + '}'
+    alert(p, alert.freq_once_per_bar_close)
